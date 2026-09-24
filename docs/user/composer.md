@@ -292,3 +292,19 @@ including filenames or folders containing `#` or `?`.
 
 On mobile, select a PDF attachment or link to open it. iOS uses the native viewer;
 Android opens a compatible installed file viewer.
+
+## Math formulas
+
+On web and desktop, formulas render in chat and Markdown file previews. Use
+`\(...\)` for inline math or `\[...\]` for a displayed equation; `$...$` and
+`$$...$$` also work. For example:
+
+```latex
+\[
+(G,R_1,\ldots,R_n)
+\]
+```
+
+Selecting and copying a formula keeps its TeX source. Formulas inside code blocks
+stay literal, and unsupported expressions remain readable as source. On mobile,
+formulas continue to display as source text.

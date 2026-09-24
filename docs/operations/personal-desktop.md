@@ -1,12 +1,14 @@
 # Maintaining the personal Mac build
 
-Use `personal/desktop` for the personal app. It carries three feature commits on
-top of upstream `main`, followed by this build helper and guide:
+Use `personal/desktop` for the personal app. It carries these features and a build
+helper on top of upstream `main`:
 
 1. Configurable generated worktree branch prefixes (ported from PR #8082).
 2. Mermaid diagrams in chat (ported from PR #9621).
 3. Diagram styling with beautiful-mermaid and the app palette, with original
    Mermaid as a fallback for unsupported syntax.
+4. Chat math with lazy-loaded KaTeX, Codex-compatible delimiters, and TeX copying
+   (adapted from PR #12118 and the public Codex terminal's single-dollar rules).
 
 `upstream` points to `https://github.com/pingdotgg/t3code.git`. `origin` points to
 the personal fork at `https://github.com/luohao/t3code.git`. Keep personal changes
@@ -29,7 +31,7 @@ on a conflict, resolve that commit, `git add` the resolved files, then run
 `git rebase --continue`. `git rebase --abort` restores the branch to its state
 before the rebase. If upstream adopts a feature, compare the behavior and tests
 before dropping the corresponding personal commit. A successful rebase alone
-does not prove that all three features still work.
+does not prove that all personal features still work.
 
 `upstream/main` is development code. Its package version can stay the same across
 many commits; the personal suffix distinguishes successive local builds.
@@ -49,7 +51,7 @@ After syncing, run the focused feature checks:
 ```sh
 (cd apps/server && vp test run src/orchestration/Layers/ProviderCommandReactor.test.ts src/serverSettings.test.ts)
 (cd packages/contracts && vp test run src/settings.test.ts)
-(cd apps/web && vp test run src/mermaidRenderer.test.ts src/components/MermaidDiagram.test.tsx src/components/ChatMarkdown.test.tsx src/markdown-clipboard.test.ts src/components/settings/settingsSearch.test.ts)
+(cd apps/web && vp test run src/mermaidRenderer.test.ts src/components/MermaidDiagram.test.tsx src/components/ChatMarkdown.test.tsx src/markdown-clipboard.test.ts src/markdown-math.test.ts src/markdown-math-clipboard.test.ts src/markdown-incremental.test.ts src/components/settings/settingsSearch.test.ts)
 vp run --filter @t3tools/web --filter t3 typecheck
 ```
 
