@@ -124,6 +124,17 @@ device keeps its own choice.
 While this is on, the active list is ordered by when each thread last came back to you, so you
 cannot drag or move threads within it. Your saved order returns when you turn it off.
 
+## Organize chats in folders
+
+On web and desktop, choose **New chat folder** in the sidebar to name a group.
+Use a chat's **Move to folder** menu to file it, move it to another folder, or
+choose **No folder** to return it to the normal list. You can move selected chats
+together and create a folder from the same menu.
+
+Collapse a folder to hide its chats; search still finds them. A folder can hold
+chats from different projects. Folder names, membership, and collapse choices
+are saved on this desktop or browser. Removing a folder keeps its chats.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

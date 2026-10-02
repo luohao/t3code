@@ -9,6 +9,13 @@ import {
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
+import { groupChatFolderThreads, useChatFolders } from "../chatFoldersStore";
+import {
+  ChatFolderSection,
+  chatFolderMoveMenu,
+  handleChatFolderMenuAction,
+  requestNewChatFolder,
+} from "./sidebar/ChatFolders";
 import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePullRequests";
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useAtomValue } from "@effect/atom-react";
@@ -2323,6 +2330,8 @@ const SidebarSearchResultRow = memo(function SidebarSearchResultRow(props: {
 });
 
 export default function Sidebar() {
+  const chatFolders = useChatFolders((state) => state.folders);
+  const threadFolders = useChatFolders((state) => state.threadFolders);
   const projects = useProjects();
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
@@ -2690,13 +2699,13 @@ export default function Sidebar() {
     readonly assignedKeys: ReadonlyMap<string, string>;
   } | null>(null);
   const {
-    pinnedThreads,
+    pinnedThreads: allPinnedThreads,
     draggableThreadKeys,
     activeReorderableThreadKeys,
-    activeThreads,
-    workingThreads,
-    snoozedThreads,
-    settledThreads,
+    activeThreads: allActiveThreads,
+    workingThreads: allWorkingThreads,
+    snoozedThreads: allSnoozedThreads,
+    settledThreads: allSettledThreads,
     snoozeNow,
   } = useMemo(() => {
     // Snooze classification uses a REAL clock, not the quantized minute:
@@ -2817,19 +2826,74 @@ export default function Sidebar() {
     workingShelfEnabled,
   ]);
 
+  const {
+    folderGroups,
+    folderThreadSections,
+    pinnedThreads,
+    activeThreads,
+    workingThreads,
+    snoozedThreads,
+    settledThreads,
+  } = useMemo(() => {
+    const sections = [
+      ["pinned", allPinnedThreads],
+      ["active", allActiveThreads],
+      ["working", allWorkingThreads],
+      ["snoozed", allSnoozedThreads],
+      ["settled", allSettledThreads],
+    ] as const;
+    const grouped = groupChatFolderThreads(
+      sections.flatMap(([, rows]) => rows),
+      { folders: chatFolders, threadFolders },
+    );
+    const unfiledKeys = new Set(
+      grouped.unfiled.map((thread) =>
+        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+      ),
+    );
+    const unfiled = (rows: readonly EnvironmentThreadShell[]) =>
+      rows.filter((thread) =>
+        unfiledKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+      );
+    return {
+      folderGroups: grouped.folders,
+      folderThreadSections: new Map(
+        sections.flatMap(([section, rows]) =>
+          rows.map(
+            (thread) =>
+              [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), section] as const,
+          ),
+        ),
+      ),
+      pinnedThreads: unfiled(allPinnedThreads),
+      activeThreads: unfiled(allActiveThreads),
+      workingThreads: unfiled(allWorkingThreads),
+      snoozedThreads: unfiled(allSnoozedThreads),
+      settledThreads: unfiled(allSettledThreads),
+    };
+  }, [
+    allPinnedThreads,
+    allActiveThreads,
+    allWorkingThreads,
+    allSnoozedThreads,
+    allSettledThreads,
+    chatFolders,
+    threadFolders,
+  ]);
+
   const threadSearchInputRef = useRef<HTMLInputElement>(null);
   const [threadSearchQuery, setThreadSearchQuery] = useState("");
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const isSearchingThreads = threadSearchQuery.trim().length > 0;
   const searchableThreads = useMemo(
     () => [
-      ...pinnedThreads,
-      ...activeThreads,
-      ...workingThreads,
-      ...snoozedThreads,
-      ...settledThreads,
+      ...allPinnedThreads,
+      ...allActiveThreads,
+      ...allWorkingThreads,
+      ...allSnoozedThreads,
+      ...allSettledThreads,
     ],
-    [activeThreads, pinnedThreads, settledThreads, snoozedThreads, workingThreads],
+    [allActiveThreads, allPinnedThreads, allSettledThreads, allSnoozedThreads, allWorkingThreads],
   );
   const searchEnvironmentIds = useConnectedEnvironmentIds();
   // useThreadSearch owns the debounce and the two-character floor.
@@ -2868,8 +2932,8 @@ export default function Sidebar() {
   // soonest-first, so entry 0 is the boundary.
   useEffect(() => {
     const nextWakeAtMs =
-      snoozedThreads.length > 0 && snoozedThreads[0]?.snoozedUntil != null
-        ? Date.parse(snoozedThreads[0].snoozedUntil)
+      allSnoozedThreads.length > 0 && allSnoozedThreads[0]?.snoozedUntil != null
+        ? Date.parse(allSnoozedThreads[0].snoozedUntil)
         : Number.NaN;
     if (Number.isNaN(nextWakeAtMs)) return;
     // setTimeout delays are signed 32-bit: anything larger overflows and
@@ -2879,7 +2943,7 @@ export default function Sidebar() {
     const delayMs = Math.min(Math.max(0, nextWakeAtMs - Date.now()) + 50, 2_147_483_647);
     const id = window.setTimeout(() => bumpSnoozeWakeTick((tick) => tick + 1), delayMs);
     return () => window.clearTimeout(id);
-  }, [snoozedThreads]);
+  }, [allSnoozedThreads]);
 
   // The settled tail renders in pages: history shouldn't dominate the
   // sidebar, and the common lookups are recent. Expansion resets when the
@@ -2983,6 +3047,7 @@ export default function Sidebar() {
 
   const orderedThreads = useMemo(
     () => [
+      ...folderGroups.flatMap((group) => (group.folder.collapsed ? [] : group.threads)),
       ...pinnedThreads,
       ...activeThreads,
       ...visibleWorkingThreads,
@@ -2990,6 +3055,7 @@ export default function Sidebar() {
       ...renderedSettledThreads,
     ],
     [
+      folderGroups,
       pinnedThreads,
       activeThreads,
       visibleWorkingThreads,
@@ -3032,22 +3098,22 @@ export default function Sidebar() {
   const settledThreadKeys = useMemo(
     () =>
       new Set(
-        settledThreads.map((thread) =>
+        allSettledThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         ),
       ),
-    [settledThreads],
+    [allSettledThreads],
   );
   const settledThreadKeysRef = useRef(settledThreadKeys);
   settledThreadKeysRef.current = settledThreadKeys;
   const snoozedThreadKeys = useMemo(
     () =>
       new Set(
-        snoozedThreads.map((thread) =>
+        allSnoozedThreads.map((thread) =>
           scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
         ),
       ),
-    [snoozedThreads],
+    [allSnoozedThreads],
   );
   const snoozedThreadKeysRef = useRef(snoozedThreadKeys);
   snoozedThreadKeysRef.current = snoozedThreadKeys;
@@ -4225,12 +4291,24 @@ export default function Sidebar() {
               : []),
             ...(titleRegenerationMenuItem ? [titleRegenerationMenuItem] : []),
             { id: "mark-unread", label: `Mark unread (${count})` },
+            chatFolderMoveMenu(
+              selectedThreads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
+            ),
             { id: "delete", label: `Delete (${count})`, destructive: true },
           ],
           position,
         ),
       );
       if (clicked._tag === "Failure") return;
+      if (
+        handleChatFolderMenuAction(
+          clicked.value,
+          selectedThreads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
+        )
+      ) {
+        clearSelection();
+        return;
+      }
       if (clicked.value?.startsWith("snooze:")) {
         const preset =
           clicked.value === "snooze:custom"
@@ -4469,6 +4547,7 @@ export default function Sidebar() {
         const clicked = await settlePromise(() =>
           api.contextMenu.show(
             buildThreadActionMenuItems({
+              folderMenu: chatFolderMoveMenu([threadRef]),
               branch: thread.branch ?? null,
               projectFilter: threadProjectGroup
                 ? {
@@ -4496,6 +4575,7 @@ export default function Sidebar() {
           ),
         );
         if (clicked._tag === "Failure") return;
+        if (handleChatFolderMenuAction(clicked.value, [threadRef])) return;
         if (clicked.value?.startsWith("snooze:")) {
           const preset =
             clicked.value === "snooze:custom"
@@ -4971,6 +5051,7 @@ export default function Sidebar() {
                 </Combobox>
               }
               onNewProject={openAddProjectCommandPalette}
+              onNewFolder={() => requestNewChatFolder()}
               onNewThread={handleNewThreadClick}
               newThreadDisabled={projects.length === 0}
               newThreadShortcutLabel={newThreadShortcutLabel}
@@ -5251,6 +5332,26 @@ export default function Sidebar() {
                           onDraftContextMenu={handleDraftContextMenu}
                         />,
                       ];
+                      for (const group of folderGroups) {
+                        items.push(
+                          <ChatFolderSection
+                            key={`chat-folder-${group.folder.id}`}
+                            folder={group.folder}
+                            threads={group.threads.map((thread) =>
+                              scopeThreadRef(thread.environmentId, thread.id),
+                            )}
+                          >
+                            {group.threads.map((thread) =>
+                              renderThreadRowInner(
+                                thread,
+                                folderThreadSections.get(
+                                  scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                                )!,
+                              ),
+                            )}
+                          </ChatFolderSection>,
+                        );
+                      }
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {
                           items.push(renderThreadRow(threadByKey.get(item.key)!, item.section));
@@ -5395,6 +5496,7 @@ export default function Sidebar() {
             </TooltipProvider>
           ) : null}
           {!isSearchingThreads &&
+          folderGroups.length === 0 &&
           visibleDraftSessionCount === 0 &&
           pinnedThreads.length +
             activeThreads.length +

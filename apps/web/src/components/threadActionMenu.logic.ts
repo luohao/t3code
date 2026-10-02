@@ -1,5 +1,6 @@
 import type { ContextMenuItem } from "@t3tools/contracts";
 import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled";
+import type { ChatFolderMenuId } from "./sidebar/ChatFolders";
 
 /**
  * Ids for the per-thread action menu. Snooze presets are dispatched as
@@ -7,6 +8,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
  * remains data-driven.
  */
 export type ThreadActionMenuId =
+  | ChatFolderMenuId
   | "new-thread-on-branch"
   | "filter-by-project"
   | "project-settings"
@@ -70,6 +72,7 @@ export function buildDraftActionMenuItems(options: {
 }
 
 export interface ThreadActionMenuState {
+  readonly folderMenu?: ContextMenuItem<ChatFolderMenuId>;
   readonly branch: string | null;
   /**
    * Project scoping for the thread list. Null on surfaces with no scoped
@@ -166,6 +169,7 @@ export function buildThreadActionMenuItems(
         ]
       : []),
     { id: "mark-unread", label: "Mark unread", icon: "mail-open" },
+    ...(state.folderMenu ? [state.folderMenu] : []),
     ...(state.projectFilter
       ? [
           {

@@ -6,6 +6,7 @@ import {
   ArrowUpDownIcon,
   ChevronRightIcon,
   FolderPlusIcon,
+  FoldersIcon,
   Globe2Icon,
   SearchIcon,
   SquarePenIcon,
@@ -80,6 +81,13 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { isElectron } from "../env";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
+import { groupChatFolderThreads, useChatFolders } from "../chatFoldersStore";
+import {
+  ChatFolderSection,
+  chatFolderMoveMenu,
+  handleChatFolderMenuAction,
+  requestNewChatFolder,
+} from "./sidebar/ChatFolders";
 import { releaseProjectDraftUploads } from "../lib/composerDraftUploads";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform } from "../lib/utils";
@@ -958,7 +966,6 @@ interface SidebarProjectThreadListProps {
   projectExpanded: boolean;
   hasOverflowingThreads: boolean;
   hiddenThreadStatus: ThreadStatusPill | null;
-  orderedProjectThreadKeys: readonly string[];
   renderedThreads: readonly SidebarThreadSummary[];
   showEmptyThreadState: boolean;
   shouldShowThreadPanel: boolean;
@@ -1014,7 +1021,6 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
     projectExpanded,
     hasOverflowingThreads,
     hiddenThreadStatus,
-    orderedProjectThreadKeys,
     renderedThreads,
     showEmptyThreadState,
     shouldShowThreadPanel,
@@ -1048,6 +1054,53 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
   } = props;
   const showMoreButtonRender = useMemo(() => <button type="button" />, []);
   const showLessButtonRender = useMemo(() => <button type="button" />, []);
+  const folders = useChatFolders((state) => state.folders);
+  const threadFolders = useChatFolders((state) => state.threadFolders);
+  const grouped = useMemo(
+    () => groupChatFolderThreads(renderedThreads, { folders, threadFolders }),
+    [renderedThreads, folders, threadFolders],
+  );
+  const orderedProjectThreadKeys = useMemo(
+    () =>
+      [
+        ...grouped.folders.flatMap((group) => (group.folder.collapsed ? [] : group.threads)),
+        ...grouped.unfiled,
+      ].map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
+    [grouped],
+  );
+  const renderThread = (thread: SidebarThreadSummary) => {
+    const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    return (
+      <SidebarThreadRow
+        key={threadKey}
+        thread={thread}
+        orderedProjectThreadKeys={orderedProjectThreadKeys}
+        isActive={activeRouteThreadKey === threadKey}
+        openPullRequestsInRightPanel={openPullRequestsInRightPanel}
+        jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
+        appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
+        renamingThreadKey={renamingThreadKey}
+        renamingTitle={renamingTitle}
+        setRenamingTitle={setRenamingTitle}
+        startThreadRename={startThreadRename}
+        renamingInputRef={renamingInputRef}
+        renamingCommittedRef={renamingCommittedRef}
+        confirmingArchiveThreadKey={confirmingArchiveThreadKey}
+        setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
+        confirmArchiveButtonRefs={confirmArchiveButtonRefs}
+        handleThreadClick={handleThreadClick}
+        navigateToThread={navigateToThread}
+        onFileDropThreads={onFileDropThreads}
+        handleMultiSelectContextMenu={handleMultiSelectContextMenu}
+        handleThreadContextMenu={handleThreadContextMenu}
+        clearSelection={clearSelection}
+        commitRename={commitRename}
+        cancelRename={cancelRename}
+        attemptArchiveThread={attemptArchiveThread}
+        openPrLink={openPrLink}
+      />
+    );
+  };
 
   return (
     <SidebarMenuSub
@@ -1064,40 +1117,24 @@ const SidebarProjectThreadList = memo(function SidebarProjectThreadList(
           </div>
         </SidebarMenuSubItem>
       ) : null}
-      {shouldShowThreadPanel &&
-        renderedThreads.map((thread) => {
-          const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
-          return (
-            <SidebarThreadRow
-              key={threadKey}
-              thread={thread}
-              orderedProjectThreadKeys={orderedProjectThreadKeys}
-              isActive={activeRouteThreadKey === threadKey}
-              openPullRequestsInRightPanel={openPullRequestsInRightPanel}
-              jumpLabel={threadJumpLabelByKey.get(threadKey) ?? null}
-              appSettingsConfirmThreadArchive={appSettingsConfirmThreadArchive}
-              renamingThreadKey={renamingThreadKey}
-              renamingTitle={renamingTitle}
-              setRenamingTitle={setRenamingTitle}
-              startThreadRename={startThreadRename}
-              renamingInputRef={renamingInputRef}
-              renamingCommittedRef={renamingCommittedRef}
-              confirmingArchiveThreadKey={confirmingArchiveThreadKey}
-              setConfirmingArchiveThreadKey={setConfirmingArchiveThreadKey}
-              confirmArchiveButtonRefs={confirmArchiveButtonRefs}
-              handleThreadClick={handleThreadClick}
-              navigateToThread={navigateToThread}
-              onFileDropThreads={onFileDropThreads}
-              handleMultiSelectContextMenu={handleMultiSelectContextMenu}
-              handleThreadContextMenu={handleThreadContextMenu}
-              clearSelection={clearSelection}
-              commitRename={commitRename}
-              cancelRename={cancelRename}
-              attemptArchiveThread={attemptArchiveThread}
-              openPrLink={openPrLink}
-            />
-          );
-        })}
+      {shouldShowThreadPanel ? (
+        <>
+          {grouped.folders
+            .filter((group) => group.threads.length > 0)
+            .map((group) => (
+              <ChatFolderSection
+                key={group.folder.id}
+                folder={group.folder}
+                threads={group.threads.map((thread) =>
+                  scopeThreadRef(thread.environmentId, thread.id),
+                )}
+              >
+                {group.threads.map(renderThread)}
+              </ChatFolderSection>
+            ))}
+          {grouped.unfiled.map(renderThread)}
+        </>
+      ) : null}
 
       {projectExpanded && hasOverflowingThreads && !isThreadListExpanded && (
         <SidebarMenuSubItem className="w-full">
@@ -1327,7 +1364,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     return counts;
   }, [memberProjectByScopedKey, project.memberProjects, projectThreads]);
 
-  const { projectStatus, visibleProjectThreads, orderedProjectThreadKeys } = useMemo(() => {
+  const { projectStatus, visibleProjectThreads } = useMemo(() => {
     const lastVisitedAtByThreadKey = new Map(
       projectThreads.map((thread, index) => [
         scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
@@ -1353,9 +1390,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       visibleProjectThreads.map((thread) => resolveProjectThreadStatus(thread)),
     );
     return {
-      orderedProjectThreadKeys: visibleProjectThreads.map((thread) =>
-        scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-      ),
       projectStatus,
       visibleProjectThreads,
     };
@@ -1909,10 +1943,22 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       );
 
       const clicked = await api.contextMenu.show(
-        buildMultiSelectThreadContextMenuItems({ count, hasRunningThread }),
+        [
+          ...buildMultiSelectThreadContextMenuItems({ count, hasRunningThread }),
+          chatFolderMoveMenu(selectedThreadEntries.map(({ threadRef }) => threadRef)),
+        ],
         position,
       );
 
+      if (
+        handleChatFolderMenuAction(
+          clicked,
+          selectedThreadEntries.map(({ threadRef }) => threadRef),
+        )
+      ) {
+        clearSelection();
+        return;
+      }
       if (clicked === "mark-unread") {
         for (const { threadRef } of selectedThreadEntries) {
           markThreadUnread(threadRef);
@@ -2257,6 +2303,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
             : []),
           { id: "rename", label: "Rename thread" },
           { id: "mark-unread", label: "Mark unread" },
+          chatFolderMoveMenu([threadRef]),
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
           { id: "project-settings", label: "Project settings" },
@@ -2265,6 +2312,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         position,
       );
 
+      if (handleChatFolderMenuAction(clicked, [threadRef])) return;
       if (clicked === "project-settings") {
         if (isMobile) setOpenMobile(false);
         void router.navigate({
@@ -2478,7 +2526,6 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         projectExpanded={projectExpanded}
         hasOverflowingThreads={hasOverflowingThreads}
         hiddenThreadStatus={hiddenThreadStatus}
-        orderedProjectThreadKeys={orderedProjectThreadKeys}
         renderedThreads={renderedThreads}
         showEmptyThreadState={showEmptyThreadState}
         shouldShowThreadPanel={shouldShowThreadPanel}
@@ -3024,6 +3071,21 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
         <div className="mb-1 flex items-center justify-between pl-2 pr-1.5">
           <span className="text-xs font-medium text-sidebar-muted-foreground/80">Projects</span>
           <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <Button
+                    size="icon-xs"
+                    variant="ghost-muted"
+                    aria-label="New chat folder"
+                    onClick={() => requestNewChatFolder()}
+                  />
+                }
+              >
+                <FoldersIcon className="size-3.5" />
+              </TooltipTrigger>
+              <TooltipPopup side="right">New chat folder</TooltipPopup>
+            </Tooltip>
             <ProjectSortMenu
               projectSortOrder={projectSortOrder}
               threadSortOrder={threadSortOrder}
@@ -3137,6 +3199,8 @@ const SidebarProjectsContent = memo(function SidebarProjectsContent(
 });
 
 export default function LegacySidebar() {
+  const chatFolders = useChatFolders((state) => state.folders);
+  const threadFolders = useChatFolders((state) => state.threadFolders);
   const projects = useProjects();
   const sidebarThreads = useThreadShells();
   const projectExpandedById = useUiStateStore((store) => store.projectExpandedById);
@@ -3489,11 +3553,18 @@ export default function LegacySidebar() {
             ? projectThreads
             : projectThreads.slice(0, sidebarThreadPreviewCount);
         const renderedThreads = pinnedCollapsedThread ? [pinnedCollapsedThread] : previewThreads;
-        return renderedThreads.map((thread) =>
-          scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
-        );
+        const grouped = groupChatFolderThreads(renderedThreads, {
+          folders: chatFolders,
+          threadFolders,
+        });
+        return [
+          ...grouped.folders.flatMap((group) => (group.folder.collapsed ? [] : group.threads)),
+          ...grouped.unfiled,
+        ].map((thread) => scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)));
       }),
     [
+      chatFolders,
+      threadFolders,
       sidebarThreadSortOrder,
       sidebarThreadPreviewCount,
       expandedThreadListsByProject,

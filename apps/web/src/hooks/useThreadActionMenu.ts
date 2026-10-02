@@ -1,5 +1,6 @@
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { requestCustomSnooze } from "../components/CustomSnoozeDialog";
+import { chatFolderMoveMenu, handleChatFolderMenuAction } from "../components/sidebar/ChatFolders";
 import {
   type AtomCommandResult,
   isAtomCommandInterrupted,
@@ -142,6 +143,7 @@ export function useThreadActionMenu(input: {
         const isRegeneratingTitle = thread.titleRegeneration != null;
         const snoozePresets = resolveSnoozePresets(now, timestampFormat);
         const items = buildThreadActionMenuItems({
+          folderMenu: chatFolderMoveMenu([threadRef]),
           branch: thread.branch ?? null,
           projectFilter: null,
           isPinned: thread.pinnedAt != null,
@@ -157,6 +159,7 @@ export function useThreadActionMenu(input: {
         const clicked = await settlePromise(() => api.contextMenu.show(items, position));
         if (clicked._tag === "Failure" || clicked.value === null) return;
         const action: ThreadActionMenuId = clicked.value;
+        if (handleChatFolderMenuAction(action, [threadRef])) return;
         if (action.startsWith("snooze:")) {
           const preset =
             action === "snooze:custom"
