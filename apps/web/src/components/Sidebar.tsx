@@ -5391,7 +5391,10 @@ export default function Sidebar() {
                           </DragRow>
                         );
                       };
-                      const from = isContextDrag ? null : (dragState?.activeSection ?? null);
+                      const from =
+                        isContextDrag || draggingFiledThreads
+                          ? null
+                          : (dragState?.activeSection ?? null);
                       const items: ReactNode[] = [
                         <SidebarDraftBlock
                           key="draft-sessions"
