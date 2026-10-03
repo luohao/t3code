@@ -124,6 +124,34 @@ describe("sidebar collision detection", () => {
     expect(detector(collisionArgs())[0]?.id).toBe("blocked");
   });
 
+  it("accepts folder moves by pointer bounds even when lifecycle moves are unsupported", () => {
+    const args = collisionArgs();
+    const folderRect = { top: 0, bottom: 36, left: 0, right: 260, width: 260, height: 36 };
+    const folder = {
+      id: "folder",
+      key: "folder",
+      disabled: false,
+      data: { current: {} },
+      node: { current: null },
+      rect: { current: folderRect },
+    };
+    const withFolder = {
+      ...args,
+      droppableContainers: [...args.droppableContainers, folder],
+      droppableRects: new Map([...args.droppableRects, [folder.id, folderRect]]),
+      pointerCoordinates: { x: 100, y: 18 },
+    };
+    const detector = createSidebarCollisionDetection(() => false, {
+      folderTargets: new Set([folder.id]),
+    });
+    expect(detector(withFolder)[0]?.id).toBe(folder.id);
+    expect(
+      detector({ ...withFolder, pointerCoordinates: { x: 100, y: 50 } }).map(
+        (collision) => collision.id,
+      ),
+    ).not.toContain(folder.id);
+  });
+
   it.each([
     { sourceSection: "active", pins: 0 },
     { sourceSection: "active", pins: 1 },

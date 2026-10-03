@@ -9,9 +9,11 @@ import {
 } from "./chat/threadContextDrag";
 import { discardComposerDraft } from "../lib/discardComposerDraft";
 import { requestCustomSnooze } from "./CustomSnoozeDialog";
-import { groupChatFolderThreads, useChatFolders } from "../chatFoldersStore";
+import { chatFolderThreadKey, groupChatFolderThreads, useChatFolders } from "../chatFoldersStore";
 import {
   ChatFolderSection,
+  ChatFolderUnfileTarget,
+  chatFolderMoveAction,
   chatFolderMoveMenu,
   handleChatFolderMenuAction,
   requestNewChatFolder,
@@ -23,6 +25,7 @@ import { replaceComposerContextReferences } from "@t3tools/shared/composerContex
 import * as Schema from "effect/Schema";
 import {
   DndContext,
+  useDraggable,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -646,6 +649,31 @@ function SortableThreadRow(props: {
       isDragging: isDragging && !props.contextDrag,
     }),
     [listeners, setNodeRef, transform, transition, isDragging, props.contextDrag],
+  );
+  return props.children(bag);
+}
+
+// Filed chats can move between folders and into composers without joining
+// the lifecycle reorder list. Their pin, snooze, and settlement stay intact.
+function DraggableFolderThreadRow(props: {
+  id: string;
+  disabled: boolean;
+  contextDrag: boolean;
+  children: (bag: SortableThreadRowBag) => ReactNode;
+}) {
+  const { listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: props.id,
+    disabled: props.disabled,
+  });
+  const bag = useMemo(
+    () => ({
+      listeners,
+      setNodeRef,
+      transform: props.contextDrag ? null : transform,
+      transition: props.contextDrag && isDragging ? "transform 150ms ease-out" : undefined,
+      isDragging: isDragging && !props.contextDrag,
+    }),
+    [listeners, setNodeRef, transform, isDragging, props.contextDrag],
   );
   return props.children(bag);
 }
@@ -3434,8 +3462,11 @@ export default function Sidebar() {
   const threadListRef = useRef<HTMLUListElement | null>(null);
   const dragLabelOffsetRef = useRef(0);
   const restrictBelowPins = useCallback<Modifier>(
-    (args) => restrictBelowSidebarLabel(args, dragLabelOffsetRef.current),
-    [],
+    (args) =>
+      chatFolders.length > 0
+        ? args.transform
+        : restrictBelowSidebarLabel(args, dragLabelOffsetRef.current),
+    [chatFolders.length],
   );
   const listMotionRef = useRef<ReturnType<typeof createSidebarListMotion> | null>(null);
   const attachListMotionRef = useCallback((node: HTMLUListElement | null) => {
@@ -3455,6 +3486,7 @@ export default function Sidebar() {
     readonly activationY: number | null;
     readonly targetSection: SidebarSection | null;
     readonly contextDrag: boolean;
+    readonly hasFiledThreads: boolean;
   } | null>(null);
   const isContextDrag = dragState?.contextDrag === true;
   const dragTargetSection = isContextDrag ? null : (dragState?.targetSection ?? null);
@@ -3476,16 +3508,31 @@ export default function Sidebar() {
     dragSensorRef.current?.cancel();
   }, []);
   // Dragged threads: the multi-selection when the picked-up row is part of it.
-  const contextDragThreads = useCallback((): ReadonlyArray<ScopedThreadRef> => {
-    const key = contextDragKeyRef.current;
-    if (key === null) return [];
-    const selected = useThreadSelectionStore.getState().selectedThreadKeys;
-    const keys = selected.has(key) ? [...selected] : [key];
-    return keys.flatMap((candidate) => {
-      const ref = parseScopedThreadKey(candidate);
-      return ref ? [ref] : [];
-    });
-  }, []);
+  const draggedThreads = useCallback(
+    (key = contextDragKeyRef.current): ReadonlyArray<ScopedThreadRef> => {
+      if (key === null) return [];
+      const selected = useThreadSelectionStore.getState().selectedThreadKeys;
+      const keys = selected.has(key) ? [...selected] : [key];
+      return keys.flatMap((candidate) => {
+        const ref = parseScopedThreadKey(candidate);
+        return ref && threadByKeyRef.current.has(candidate) ? [ref] : [];
+      });
+    },
+    [],
+  );
+  const folderDropTargets = useMemo(
+    () =>
+      new Set<string>(
+        chatFolders.length === 0
+          ? []
+          : [
+              chatFolderMoveAction(null),
+              ...chatFolders.map((folder) => chatFolderMoveAction(folder.id)),
+            ],
+      ),
+    [chatFolders],
+  );
+  const draggingFiledThreads = dragState?.hasFiledThreads === true;
   const pointerOutsideThreadList = useCallback((point: { x: number; y: number }) => {
     const bounds = threadListRef.current?.getBoundingClientRect();
     return bounds !== undefined && (point.x < bounds.left || point.x > bounds.right);
@@ -3502,22 +3549,22 @@ export default function Sidebar() {
         endThreadContextDrag();
         return false;
       }
-      const threads = contextDragThreads();
+      const threads = draggedThreads();
       const title =
         threadByKeyRef.current.get(contextDragKeyRef.current ?? "")?.title.trim() || "Thread";
       moveThreadContextDragGhost(point, { title, count: threads.length });
       return true;
     },
-    [contextDragThreads, pointerOutsideThreadList],
+    [draggedThreads, pointerOutsideThreadList],
   );
   const dropThreadContextDrag = useCallback(
     (point: { x: number; y: number }) => {
       if (!pointerOutsideThreadList(point)) return false;
-      dropThreadContext(point, contextDragThreads());
+      dropThreadContext(point, draggedThreads());
       // Releasing outside the list never reorders, whether or not a composer took the drop.
       return true;
     },
-    [contextDragThreads, pointerOutsideThreadList],
+    [draggedThreads, pointerOutsideThreadList],
   );
   const dndSensors = useSensors(
     useSensor(SidebarPointerSensor, {
@@ -3529,7 +3576,7 @@ export default function Sidebar() {
     }),
   );
   const sectionByThreadKey = useMemo(() => {
-    const map = new Map<string, SidebarSection>();
+    const map = new Map<string, SidebarSection>(folderThreadSections);
     const add = (list: readonly EnvironmentThreadShell[], section: SidebarSection) => {
       for (const thread of list) {
         map.set(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), section);
@@ -3541,7 +3588,14 @@ export default function Sidebar() {
     add(snoozedThreads, "snoozed");
     add(settledThreads, "settled");
     return map;
-  }, [activeThreads, pinnedThreads, settledThreads, snoozedThreads, workingThreads]);
+  }, [
+    activeThreads,
+    folderThreadSections,
+    pinnedThreads,
+    settledThreads,
+    snoozedThreads,
+    workingThreads,
+  ]);
   const sectionByThreadKeyRef = useRef(sectionByThreadKey);
   sectionByThreadKeyRef.current = sectionByThreadKey;
   // Drag a row action to apply it to the armed rows in the same section.
@@ -3760,15 +3814,18 @@ export default function Sidebar() {
         activeSection,
         targetSection: activeSection,
         contextDrag: false,
+        hasFiledThreads: draggedThreads(activeKey).some(
+          (thread) => threadFolders[chatFolderThreadKey(thread)] !== undefined,
+        ),
         occurredAt: new Date().toISOString(),
         activationY:
           event.activatorEvent instanceof PointerEvent ? event.activatorEvent.clientY : null,
       });
     },
-    [sectionByThreadKey],
+    [draggedThreads, sectionByThreadKey, threadFolders],
   );
-  // Include every visible row in the measured order. Older servers disable
-  // pickup on their rows without changing where those rows render.
+  // Lifecycle reordering measures unfiled rows. Filed rows use folder drop
+  // targets and keep their lifecycle state when they move.
   const sidebarListItems = useMemo((): readonly SidebarListItem[] => {
     const rowsOf = (
       list: readonly EnvironmentThreadShell[],
@@ -3819,13 +3876,10 @@ export default function Sidebar() {
     workingThreads.length,
   ]);
   useEffect(() => {
-    if (
-      dragState !== null &&
-      !sidebarListItems.some((item) => item.kind === "thread" && item.key === dragState.activeKey)
-    ) {
+    if (dragState !== null && !orderedThreadKeys.includes(dragState.activeKey)) {
       cancelThreadDrag();
     }
-  }, [cancelThreadDrag, dragState, sidebarListItems]);
+  }, [cancelThreadDrag, dragState, orderedThreadKeys]);
   const listMotionPaused = dragState !== null;
   // Every shell event rebuilds sidebarListItems, but rows only move when the
   // rendered order or a row's section changes. Keying the motion pass on that
@@ -3940,9 +3994,10 @@ export default function Sidebar() {
   const dragActivationY = dragState?.activationY;
   const dndCollisionDetection = useMemo(() => {
     if (draggedThreadKey === undefined || draggedFromSection === undefined)
-      return createSidebarCollisionDetection(() => true);
+      return createSidebarCollisionDetection(() => true, { folderTargets: folderDropTargets });
     const source = threadByKey.get(draggedThreadKey);
-    if (source === undefined) return createSidebarCollisionDetection(() => false);
+    if (source === undefined)
+      return createSidebarCollisionDetection(() => false, { folderTargets: folderDropTargets });
     return createSidebarCollisionDetection(
       (id) => {
         const target = resolveSidebarDropTarget(sidebarListItems, draggedThreadKey, id);
@@ -3970,6 +4025,7 @@ export default function Sidebar() {
       {
         items: sidebarListItems,
         activationY: dragActivationY ?? null,
+        folderTargets: folderDropTargets,
       },
     );
   }, [
@@ -3980,6 +4036,7 @@ export default function Sidebar() {
     activeReorderableThreadKeys,
     draggedThreadKey,
     draggedFromSection,
+    folderDropTargets,
     dragActivationY,
     draggableThreadKeys,
     pinnedKeys,
@@ -3990,6 +4047,12 @@ export default function Sidebar() {
   const handleThreadDragEnd = useCallback(
     (event: DragEndEvent) => {
       const activeKey = String(event.active.id);
+      const folderAction = event.over === null ? null : String(event.over.id);
+      if (folderAction !== null && folderDropTargets.has(folderAction)) {
+        handleChatFolderMenuAction(folderAction, draggedThreads(activeKey));
+        clearSelection();
+        return;
+      }
       const activeSection = sectionByThreadKey.get(activeKey);
       const target =
         event.over === null
@@ -3998,6 +4061,7 @@ export default function Sidebar() {
       const activeThread = threadByKey.get(activeKey);
       if (activeSection === undefined || target === null || activeThread === undefined) return;
       const threadRef = scopeThreadRef(activeThread.environmentId, activeThread.id);
+      if (threadFolders[chatFolderThreadKey(threadRef)] !== undefined) return;
       const plan = planSidebarThreadDrop({
         activeKey,
         activeSection,
@@ -4134,6 +4198,9 @@ export default function Sidebar() {
       serverConfigs,
       activeKeys,
       activeReorderableThreadKeys,
+      clearSelection,
+      draggedThreads,
+      folderDropTargets,
       draggableThreadKeys,
       pinThread,
       pinnedKeys,
@@ -4144,6 +4211,7 @@ export default function Sidebar() {
       settleThread,
       sidebarListItems,
       threadByKey,
+      threadFolders,
       unpinThread,
       unsettleThread,
       unsnoozeThread,
@@ -5300,24 +5368,27 @@ export default function Sidebar() {
                       const renderThreadRow = (
                         thread: EnvironmentThreadShell,
                         section: SidebarSection,
+                        filed = false,
                       ) => {
                         const threadKey = scopedThreadKey(
                           scopeThreadRef(thread.environmentId, thread.id),
                         );
+                        const DragRow = filed ? DraggableFolderThreadRow : SortableThreadRow;
                         return (
-                          <SortableThreadRow
+                          <DragRow
                             key={threadKey}
                             id={threadKey}
                             contextDrag={isContextDrag}
                             disabled={
                               renamingThreadKey === threadKey ||
-                              section === "working" ||
-                              !draggableThreadKeys.has(threadKey) ||
+                              (!filed &&
+                                chatFolders.length === 0 &&
+                                (section === "working" || !draggableThreadKeys.has(threadKey))) ||
                               optimisticDrop !== null
                             }
                           >
                             {(bag) => renderThreadRowInner(thread, section, bag)}
-                          </SortableThreadRow>
+                          </DragRow>
                         );
                       };
                       const from = isContextDrag ? null : (dragState?.activeSection ?? null);
@@ -5337,20 +5408,25 @@ export default function Sidebar() {
                           <ChatFolderSection
                             key={`chat-folder-${group.folder.id}`}
                             folder={group.folder}
+                            allowDrop
                             threads={group.threads.map((thread) =>
                               scopeThreadRef(thread.environmentId, thread.id),
                             )}
                           >
                             {group.threads.map((thread) =>
-                              renderThreadRowInner(
+                              renderThreadRow(
                                 thread,
                                 folderThreadSections.get(
                                   scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
                                 )!,
+                                true,
                               ),
                             )}
                           </ChatFolderSection>,
                         );
+                      }
+                      if (draggingFiledThreads) {
+                        items.push(<ChatFolderUnfileTarget key="chat-folder-unfile" />);
                       }
                       for (const item of sidebarListItems) {
                         if (item.kind === "thread") {

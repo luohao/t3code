@@ -131,6 +131,10 @@ Use a chat's **Move to folder** menu to file it, move it to another folder, or
 choose **No folder** to return it to the normal list. You can move selected chats
 together and create a folder from the same menu.
 
+In the thread sidebar, you can also drag chats onto a folder, including a collapsed
+folder. Drag a filed chat onto **No folder**, which appears during the drag, to
+return it to the normal list. Selected chats move together.
+
 Collapse a folder to hide its chats; search still finds them. A folder can hold
 chats from different projects. Folder names, membership, and collapse choices
 are saved on this desktop or browser. Removing a folder keeps its chats.

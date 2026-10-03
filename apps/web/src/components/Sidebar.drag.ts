@@ -1,4 +1,9 @@
-import { closestCenter, type CollisionDetection, type Modifier } from "@dnd-kit/core";
+import {
+  closestCenter,
+  pointerWithin,
+  type CollisionDetection,
+  type Modifier,
+} from "@dnd-kit/core";
 import { verticalListSortingStrategy, type SortingStrategy } from "@dnd-kit/sortable";
 import {
   resolveSidebarDropTarget,
@@ -37,6 +42,8 @@ export function createSidebarCollisionDetection(
   options: {
     items?: readonly SidebarListItem[];
     activationY?: number | null;
+    /** Folder moves use the pointer, regardless of lifecycle eligibility or card size. */
+    folderTargets?: ReadonlySet<string>;
   } = {},
 ): CollisionDetection {
   const validity = new Map<string, boolean>();
@@ -44,6 +51,20 @@ export function createSidebarCollisionDetection(
   let previousPointerY = options.activationY;
   let boundarySection: "pinned" | "active" | undefined;
   return (args) => {
+    if (options.folderTargets?.size) {
+      const folderTargets = args.droppableContainers.filter((container) =>
+        options.folderTargets?.has(String(container.id)),
+      );
+      const folderCollisions = pointerWithin({ ...args, droppableContainers: folderTargets });
+      if (folderCollisions.length > 0) return folderCollisions;
+      // A nearby folder must not claim a drop outside its actual bounds.
+      args = {
+        ...args,
+        droppableContainers: args.droppableContainers.filter(
+          (container) => !options.folderTargets?.has(String(container.id)),
+        ),
+      };
+    }
     let collisions = closestCenter(args);
     const pointer = args.pointerCoordinates;
     const items = options.items;

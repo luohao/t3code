@@ -9,6 +9,8 @@ import {
   groupChatFolderThreads,
   useChatFolders,
 } from "../../chatFoldersStore";
+import { dismissContextMenu } from "../../contextMenuFallback";
+import { createLocalApi } from "../../localApi";
 import {
   ChatFolderDialogHost,
   ChatFolderSection,
@@ -63,6 +65,10 @@ let container: HTMLDivElement;
 
 beforeEach(async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+    callback(0);
+    return 0;
+  });
   window.localStorage.clear();
   chatFoldersStore.setState({ folders: [], threadFolders: {}, loadError: null });
   container = document.createElement("div");
@@ -79,6 +85,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  dismissContextMenu();
   await act(async () => root.unmount());
   document.body.replaceChildren();
   vi.unstubAllGlobals();
@@ -105,6 +112,22 @@ async function folderAction(name: string, action: string) {
     (entry) => entry.textContent === action,
   )!;
   await act(async () => item.click());
+}
+
+async function moveThroughMenu(destination: string) {
+  const selection = createLocalApi().contextMenu.show([chatFolderMoveMenu(refs)]);
+  const button = (label: string) => {
+    const match = [...document.querySelectorAll<HTMLButtonElement>("button")].find(
+      (item) => item.textContent === label,
+    );
+    expect(match, `Missing menu item: ${label}`).toBeDefined();
+    return match!;
+  };
+  await act(async () => button("Move to folder").click());
+  await act(async () => button(destination).click());
+  await act(async () => {
+    expect(handleChatFolderMenuAction(await selection, refs)).toBe(true);
+  });
 }
 
 describe("chat folder controls", () => {
@@ -138,19 +161,14 @@ describe("chat folder controls", () => {
     await nameFolder("First");
     await act(async () => requestNewChatFolder());
     await nameFolder("Second");
-    const move = chatFolderMoveMenu(refs).children!.find((item) => item.label === "Second")!;
-    await act(async () => {
-      expect(handleChatFolderMenuAction(move.id, refs)).toBe(true);
-    });
+    await moveThroughMenu("Second");
     const reloaded = createChatFoldersStore(window.localStorage).getState();
     const grouped = groupChatFolderThreads(chats, reloaded);
     expect(grouped.folders.find((group) => group.folder.name === "First")?.threads).toHaveLength(0);
     expect(grouped.folders.find((group) => group.folder.name === "Second")?.threads).toHaveLength(
       2,
     );
-    await act(async () => {
-      expect(handleChatFolderMenuAction("chat-folder:none", refs)).toBe(true);
-    });
+    await moveThroughMenu("No folder");
     expect(groupChatFolderThreads(chats, chatFoldersStore.getState()).unfiled).toEqual(chats);
   });
 });

@@ -1,6 +1,7 @@
 import type { ContextMenuItem, ScopedThreadRef } from "@t3tools/contracts";
 import { scopedThreadKey } from "@t3tools/client-runtime/environment";
 import { ChevronRightIcon, FolderIcon, FolderOpenIcon, MoreHorizontalIcon } from "lucide-react";
+import { useDroppable } from "@dnd-kit/core";
 import { type ReactNode, useEffect, useId, useState } from "react";
 import { create } from "zustand";
 import {
@@ -25,12 +26,18 @@ import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Menu, MenuTrigger, MenuPopup, MenuItem } from "../ui/menu";
 import { toastManager } from "../ui/toast";
+import { cn } from "../../lib/utils";
 
 export type ChatFolderMenuId =
   | "chat-folder"
   | "chat-folder:none"
   | "chat-folder:new"
   | `chat-folder:move:${string}`;
+
+/** Menus and drops apply the same client-owned move. */
+export function chatFolderMoveAction(folderId: string | null): ChatFolderMenuId {
+  return folderId === null ? "chat-folder:none" : `chat-folder:move:${folderId}`;
+}
 
 type FolderEditRequest = {
   readonly folderId: string | null;
@@ -68,9 +75,13 @@ export function chatFolderMoveMenu(
     label: "Move to folder",
     icon: "folder",
     children: [
-      { id: "chat-folder:none", label: "No folder", checked: assigned.every((id) => id === null) },
+      {
+        id: chatFolderMoveAction(null),
+        label: "No folder",
+        checked: assigned.every((id) => id === null),
+      },
       ...state.folders.map((folder) => ({
-        id: `chat-folder:move:${folder.id}` as const,
+        id: chatFolderMoveAction(folder.id),
         label: folder.name,
         checked: assigned.every((id) => id === folder.id),
       })),
@@ -111,21 +122,30 @@ export function ChatFolderSection({
   folder,
   threads,
   children,
+  allowDrop = false,
 }: {
   readonly folder: ChatFolder;
   readonly threads: readonly ScopedThreadRef[];
   readonly children: ReactNode;
+  readonly allowDrop?: boolean;
 }) {
   const contentId = useId();
+  const { setNodeRef, isOver } = useDroppable({
+    id: chatFolderMoveAction(folder.id),
+    disabled: !allowDrop,
+  });
   return (
-    <li className="list-none" data-thread-selection-safe>
+    <li ref={allowDrop ? setNodeRef : undefined} className="list-none" data-thread-selection-safe>
       <div className="group/chat-folder flex items-center gap-1">
         <button
           type="button"
           aria-expanded={!folder.collapsed}
           aria-controls={folder.collapsed ? undefined : contentId}
           aria-label={`${folder.name}, ${threads.length} chats`}
-          className="flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground"
+          className={cn(
+            "flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
+            isOver && "bg-primary/10 text-primary ring-1 ring-inset ring-primary/40",
+          )}
           onClick={() => {
             try {
               chatFoldersStore.getState().setCollapsed(folder.id, !folder.collapsed);
@@ -194,6 +214,24 @@ export function ChatFolderSection({
           )}
         </ul>
       ) : null}
+    </li>
+  );
+}
+
+/** A visible way out even when every chat is filed or a folder is collapsed. */
+export function ChatFolderUnfileTarget() {
+  const { setNodeRef, isOver } = useDroppable({ id: chatFolderMoveAction(null) });
+  return (
+    <li
+      ref={setNodeRef}
+      data-thread-selection-safe
+      data-testid="chat-folder-unfile-target"
+      className={cn(
+        "flex h-9 items-center justify-center rounded-md border border-dashed border-sidebar-foreground/25 text-xs text-sidebar-muted-foreground",
+        isOver && "border-primary/40 bg-primary/10 text-primary",
+      )}
+    >
+      No folder
     </li>
   );
 }
