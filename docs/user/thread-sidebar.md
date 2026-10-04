@@ -226,9 +226,12 @@ snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
 On web and desktop, open **Thread details → Lineage** to follow work delegated to
-subagents. Claude workflows also show their members and live status under
-**Workflow agents**, including while the main response is finished and the
-workflow is still running. Stop on a thread also stops the subagents it delegated to.
+subagents. **Workflow agents** shows ongoing Claude workflows, including while
+the main response is finished. Tasks are grouped by stage with live status;
+choose **View graph** to expand the stage diagram. Its arrows show stage order.
+Paused workflows remain visible, and finished workflows disappear. Completed
+tasks stay visible within a workflow until the workflow itself finishes.
+Stop on a thread also stops the subagents it delegated to.
 
 Subagent threads started by the agent can't take messages; message the parent
 thread instead. When such a subagent needs an approval or an answer, the parent

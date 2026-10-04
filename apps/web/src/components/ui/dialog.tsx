@@ -10,12 +10,19 @@ import {
   DIALOG_MEDIA_POPUP_CLASS,
   DIALOG_MOBILE_SHEET_CLASS,
   DIALOG_POPUP_CLASS,
+  DIALOG_SOLID_POPUP_CLASS,
 } from "~/components/ui/dialog-styles";
 import { ScrollArea } from "~/components/ui/scroll-area";
 
 const Dialog = DialogPrimitive.Root;
 
 const DialogPortal = DialogPrimitive.Portal;
+
+const popupVariants = {
+  default: DIALOG_POPUP_CLASS,
+  solid: DIALOG_SOLID_POPUP_CLASS,
+  media: DIALOG_MEDIA_POPUP_CLASS,
+};
 
 function DialogTrigger(props: DialogPrimitive.Trigger.Props) {
   return <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />;
@@ -62,28 +69,32 @@ function DialogPopup({
   showCloseButton = true,
   bottomStickOnMobile = true,
   variant = "default",
+  layer = "default",
   ...props
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean;
   bottomStickOnMobile?: boolean;
-  variant?: "default" | "media";
+  variant?: "default" | "solid" | "media";
+  /** A dialog opened inside a popover must cover its portal, while tooltips stay above it. */
+  layer?: "default" | "popover";
 }) {
+  const layerClass = layer === "popover" ? "z-[135]" : variant === "media" ? "z-[60]" : undefined;
   return (
     <DialogPortal>
-      {/* Media opens from inside other overlays (a composer chip, a popover), so it sits above them. */}
-      <DialogBackdrop className={variant === "media" ? "z-[60]" : undefined} variant={variant} />
+      <DialogBackdrop className={layerClass} variant={variant === "media" ? "media" : "default"} />
       <DialogViewport
         className={cn(
           bottomStickOnMobile && "max-sm:grid-rows-[1fr_auto] max-sm:p-0 max-sm:pt-12",
+          layerClass,
           variant === "media" &&
-            "z-[60] grid-rows-1 place-items-center px-4 py-6 [-webkit-app-region:no-drag]",
+            "grid-rows-1 place-items-center px-4 py-6 [-webkit-app-region:no-drag]",
         )}
       >
         <DialogPrimitive.Popup
           className={cn(
-            variant === "media" ? DIALOG_MEDIA_POPUP_CLASS : DIALOG_POPUP_CLASS,
+            popupVariants[variant],
             "row-start-2 text-popover-foreground",
-            variant === "default" && "max-h-full max-w-lg",
+            variant !== "media" && "max-h-full max-w-lg",
             bottomStickOnMobile && DIALOG_MOBILE_SHEET_CLASS,
             className,
           )}

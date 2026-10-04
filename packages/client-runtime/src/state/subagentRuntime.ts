@@ -74,6 +74,30 @@ export interface RuntimeSubagent {
   readonly updatedAt: string;
 }
 
+export interface RuntimeWorkflowStage {
+  readonly id: string;
+  /** Null when Claude has not supplied an ordered phase index. */
+  readonly index: number | null;
+  readonly title: string;
+  /** Aggregate task state; Claude does not report a phase lifecycle. */
+  readonly status: RuntimeSubagentStatus;
+  readonly tasks: ReadonlyArray<RuntimeSubagent>;
+}
+
+type ProjectedSubagent = {
+  readonly id: string;
+  readonly title: string | null;
+  readonly prompt: string;
+  readonly model: string | null;
+  readonly status: OrchestrationV2Subagent["status"];
+  readonly progress?: string | undefined;
+  readonly workflow?: OrchestrationV2Subagent["workflow"];
+  readonly result: string | null;
+  readonly startedAt: DateTime.Utc | null;
+  readonly completedAt: DateTime.Utc | null;
+  readonly updatedAt: DateTime.Utc;
+};
+
 const TERMINAL_STATUSES: ReadonlySet<RuntimeSubagentStatus> = new Set([
   "completed",
   "failed",
@@ -96,19 +120,7 @@ export function isActiveSubagentStatus(status: RuntimeSubagentStatus): boolean {
  * agent rows render.
  */
 export function projectedSubagentsToRuntime(
-  subagents: ReadonlyArray<{
-    readonly id: string;
-    readonly title: string | null;
-    readonly prompt: string;
-    readonly model: string | null;
-    readonly status: OrchestrationV2Subagent["status"];
-    readonly progress?: string | undefined;
-    readonly workflow?: OrchestrationV2Subagent["workflow"];
-    readonly result: string | null;
-    readonly startedAt: DateTime.Utc | null;
-    readonly completedAt: DateTime.Utc | null;
-    readonly updatedAt: DateTime.Utc;
-  }>,
+  subagents: ReadonlyArray<ProjectedSubagent>,
 ): ReadonlyArray<RuntimeSubagent> {
   return subagents.flatMap((subagent) => {
     const updatedAt = DateTime.formatIso(subagent.updatedAt);
@@ -187,4 +199,63 @@ export function projectedSubagentsToRuntime(
       }) ?? [];
     return [coordinator, ...members];
   });
+}
+
+/**
+ * Groups the normalized roster into Claude's reported stages, retaining empty
+ * stages and tasks whose phase metadata has not arrived yet. Stage indices
+ * describe order; the native stream does not supply task dependency edges.
+ */
+export function workflowStagesFromSubagent(
+  subagent: ProjectedSubagent,
+): ReadonlyArray<RuntimeWorkflowStage> {
+  if (subagent.workflow === undefined) return [];
+  const stages = new Map<
+    string,
+    { id: string; index: number | null; title: string; tasks: RuntimeSubagent[] }
+  >();
+  for (const phase of subagent.workflow.phases) {
+    const id = `phase:${phase.index}`;
+    stages.set(id, { id, index: phase.index, title: phase.title, tasks: [] });
+  }
+  for (const task of projectedSubagentsToRuntime([subagent]).slice(1)) {
+    const phaseTitle = task.phaseTitle?.trim() || null;
+    const namedPhases = subagent.workflow.phases.filter((phase) => phase.title === phaseTitle);
+    const index = task.phaseIndex ?? (namedPhases.length === 1 ? namedPhases[0]!.index : null);
+    const id = index !== null ? `phase:${index}` : `title:${phaseTitle ?? ""}`;
+    let stage = stages.get(id);
+    if (stage === undefined) {
+      stage = {
+        id,
+        index,
+        title: phaseTitle ?? (index === null ? "Tasks" : `Stage ${index + 1}`),
+        tasks: [],
+      };
+      stages.set(id, stage);
+    }
+    stage.tasks.push(task);
+  }
+  const statusPriority: ReadonlyArray<RuntimeSubagentStatus> = [
+    "running",
+    "waiting",
+    "pending",
+    "failed",
+    "interrupted",
+    "cancelled",
+    "idle",
+  ];
+  return [...stages.values()]
+    .sort((a, b) => {
+      if (a.index === null) return b.index === null ? 0 : 1;
+      if (b.index === null) return -1;
+      return a.index - b.index;
+    })
+    .map((stage) => ({
+      ...stage,
+      status:
+        stage.tasks.length === 0
+          ? "pending"
+          : (statusPriority.find((status) => stage.tasks.some((task) => task.status === status)) ??
+            "completed"),
+    }));
 }
