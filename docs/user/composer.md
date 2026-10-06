@@ -293,6 +293,16 @@ including filenames or folders containing `#` or `?`.
 On mobile, select a PDF attachment or link to open it. iOS uses the native viewer;
 Android opens a compatible installed file viewer.
 
+## Mermaid diagrams
+
+On web and desktop, completed `mermaid` code blocks render as diagrams. Use the
+code toggle to switch back to the source, or select a diagram to open it in the
+image viewer. Flowcharts and sequence, state, class and ER diagrams use the app's
+colors and fonts when the styled renderer supports their syntax. Other diagram
+types, very large diagrams, diagrams that set Mermaid options, and syntax the
+styled renderer cannot draw faithfully (for example compact edges such as
+`A-->B`) use Mermaid's own theme. The mobile app continues to display source code.
+
 ## Math formulas
 
 On web and desktop, formulas render in chat and Markdown file previews. Use

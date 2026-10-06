@@ -3,6 +3,7 @@ import type { Mermaid } from "mermaid";
 import { use, useState } from "react";
 
 import { Button } from "../ui/button";
+import { inlineBeautifulMermaidTheme, renderBeautifulMermaid } from "./beautifulMermaid";
 
 type MermaidRenderResult =
   | { readonly status: "rendered"; readonly svg: string }
@@ -65,6 +66,8 @@ async function renderMermaid(
   theme: "light" | "dark",
 ): Promise<MermaidRenderResult> {
   const id = `mermaid-diagram-${nextDiagramId++}`;
+  const beautifulSvg = await renderBeautifulMermaid(source, id);
+  if (beautifulSvg !== null) return { status: "rendered", svg: beautifulSvg };
   let mermaid: Mermaid;
   try {
     mermaid = await loadMermaid();
@@ -153,6 +156,7 @@ function mermaidImageUrl(svg: string): string {
   element.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   element.style.maxWidth = "none";
   element.style.backgroundColor = getComputedStyle(document.body).backgroundColor;
+  inlineBeautifulMermaidTheme(element);
   if (expandedImageUrl) URL.revokeObjectURL(expandedImageUrl);
   expandedImageUrl = URL.createObjectURL(
     new Blob([new XMLSerializer().serializeToString(element)], { type: "image/svg+xml" }),
