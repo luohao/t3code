@@ -3607,7 +3607,27 @@ export default function Sidebar() {
   ]);
   const sectionByThreadKeyRef = useRef(sectionByThreadKey);
   sectionByThreadKeyRef.current = sectionByThreadKey;
-  // Drag a row action to apply it to the armed rows in the same section.
+  // Folders split a lifecycle section into separate groups; unfiled rows map
+  // to undefined.
+  const folderIdByThreadKey = useMemo(
+    () =>
+      new Map(
+        folderGroups.flatMap((group) =>
+          group.threads.map(
+            (thread) =>
+              [
+                scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)),
+                group.folder.id,
+              ] as const,
+          ),
+        ),
+      ),
+    [folderGroups],
+  );
+  const folderIdByThreadKeyRef = useRef(folderIdByThreadKey);
+  folderIdByThreadKeyRef.current = folderIdByThreadKey;
+  // Drag a row action to apply it to the armed rows in the same section, and
+  // in the same folder when folders split that section.
   // Staying in one section keeps an overshoot from changing neighboring
   // sections, whose boundaries may be hidden outside a row drag. The sweep
   // runs on the row drag's sensor and ref, so unmounting the list cancels it.
@@ -3619,6 +3639,7 @@ export default function Sidebar() {
     (threadRef: ScopedThreadRef, action: SidebarSweepAction, event: PointerEvent) => {
       const originKey = scopedThreadKey(threadRef);
       const originSection = sectionByThreadKeyRef.current.get(originKey);
+      const originFolderId = folderIdByThreadKeyRef.current.get(originKey);
       const canApply = (key: string) => {
         const thread = threadByKeyRef.current.get(key);
         const capabilities =
@@ -3626,6 +3647,7 @@ export default function Sidebar() {
         return (
           thread !== undefined &&
           sectionByThreadKeyRef.current.get(key) === originSection &&
+          folderIdByThreadKeyRef.current.get(key) === originFolderId &&
           (action === "unsnooze"
             ? capabilities?.threadSnooze === true
             : capabilities?.threadSettlement === true)
