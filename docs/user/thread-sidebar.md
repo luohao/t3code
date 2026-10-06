@@ -225,8 +225,10 @@ the snooze. Enable **Snooze limited threads** in thread behavior settings to
 snooze limit stops by default. Providers without a reset time offer manual
 retry and the normal snooze choices.
 
-On web and desktop, use **Agents** to follow work delegated to subagents.
-Stop on a thread also stops the subagents it delegated to.
+On web and desktop, open **Thread details → Lineage** to follow work delegated to
+subagents. Claude workflows also show their members and live status under
+**Workflow agents**, including while the main response is finished and the
+workflow is still running. Stop on a thread also stops the subagents it delegated to.
 
 Subagent threads started by the agent can't take messages; message the parent
 thread instead. When such a subagent needs an approval or an answer, the parent

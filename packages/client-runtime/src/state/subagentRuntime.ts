@@ -103,18 +103,19 @@ export function projectedSubagentsToRuntime(
     readonly model: string | null;
     readonly status: OrchestrationV2Subagent["status"];
     readonly progress?: string | undefined;
+    readonly workflow?: OrchestrationV2Subagent["workflow"];
     readonly result: string | null;
     readonly startedAt: DateTime.Utc | null;
     readonly completedAt: DateTime.Utc | null;
     readonly updatedAt: DateTime.Utc;
   }>,
 ): ReadonlyArray<RuntimeSubagent> {
-  return subagents.map((subagent) => {
+  return subagents.flatMap((subagent) => {
     const updatedAt = DateTime.formatIso(subagent.updatedAt);
     const startedAt = subagent.startedAt === null ? null : DateTime.formatIso(subagent.startedAt);
-    return {
+    const coordinator = {
       id: subagent.id,
-      kind: "subagent" as const,
+      kind: subagent.workflow === undefined ? ("subagent" as const) : ("workflow" as const),
       title:
         subagent.title ??
         (subagent.prompt.length > 80 ? `${subagent.prompt.slice(0, 77)}...` : subagent.prompt),
@@ -134,8 +135,8 @@ export function projectedSubagentsToRuntime(
       phaseIndex: null,
       phaseTitle: null,
       attempt: null,
-      workflowName: null,
-      phases: [],
+      workflowName: subagent.workflow?.name ?? null,
+      phases: subagent.workflow?.phases ?? [],
       runHandles: null,
       recentActivity: [],
       firstSeenAt: startedAt ?? updatedAt,
@@ -143,5 +144,47 @@ export function projectedSubagentsToRuntime(
       completedAt: subagent.completedAt === null ? null : DateTime.formatIso(subagent.completedAt),
       updatedAt,
     } satisfies RuntimeSubagent;
+    const members =
+      subagent.workflow?.agents.map((agent) => {
+        // A coordinator can finish without a last roster tick. Keep terminal
+        // members' outcomes; settle unfinished work so it cannot look live forever.
+        const status =
+          isActiveSubagentStatus(agent.status) && isTerminalSubagentStatus(coordinator.status)
+            ? agent.status === "pending"
+              ? "cancelled"
+              : coordinator.status
+            : coordinator.status === "idle" && isActiveSubagentStatus(agent.status)
+              ? "idle"
+              : agent.status;
+        const phaseTitle =
+          agent.phaseTitle ??
+          subagent.workflow?.phases.find((phase) => phase.index === agent.phaseIndex)?.title ??
+          null;
+        return {
+          ...coordinator,
+          id: `${subagent.id}:wf:${agent.index}`,
+          kind: "workflow_agent" as const,
+          title: agent.title,
+          role: phaseTitle,
+          model: agent.model ?? coordinator.model,
+          status,
+          progress: agent.lastToolName ?? phaseTitle,
+          lastToolName: agent.lastToolName ?? null,
+          usage: agent.usage ?? null,
+          result: null,
+          error: agent.error ?? (status === "failed" ? coordinator.error : null),
+          parentAgentId: subagent.id,
+          agentIndex: agent.index,
+          phaseIndex: agent.phaseIndex ?? null,
+          phaseTitle,
+          attempt: agent.attempt ?? null,
+          startedAt: agent.startedAt,
+          completedAt: isTerminalSubagentStatus(status)
+            ? (agent.completedAt ?? coordinator.completedAt ?? updatedAt)
+            : null,
+          firstSeenAt: agent.startedAt ?? coordinator.firstSeenAt,
+        } satisfies RuntimeSubagent;
+      }) ?? [];
+    return [coordinator, ...members];
   });
 }

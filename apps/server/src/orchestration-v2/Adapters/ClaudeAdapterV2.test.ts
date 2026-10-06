@@ -2095,6 +2095,11 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       });
       const offeredMessages: Array<SDKUserMessage> = [];
       const permissionModeChanges: Array<string> = [];
+      const promptReceipts = yield* Queue.unbounded<SDKUserMessage>();
+      const subagentReceipts =
+        yield* Queue.unbounded<Extract<ProviderAdapterV2Event, { type: "subagent.updated" }>>();
+      const subagentItemReceipts =
+        yield* Queue.unbounded<Extract<ProviderAdapterV2Event, { type: "turn_item.updated" }>>();
       const continuationRequests: Array<ProviderContinuationRequest> = [];
       const terminalReceipts =
         yield* Queue.unbounded<Extract<ProviderAdapterV2Event, { type: "turn.terminal" }>>();
@@ -2141,7 +2146,7 @@ describe("ClaudeAdapterV2 background wake turns", () => {
                 offer: (message) =>
                   Effect.sync(() => {
                     offeredMessages.push(message);
-                  }),
+                  }).pipe(Effect.andThen(Queue.offer(promptReceipts, message)), Effect.asVoid),
                 setModel: () => Effect.void,
                 setPermissionMode: (mode) =>
                   Effect.sync(() => {
@@ -2173,6 +2178,10 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         Stream.runForEach((event) =>
           Effect.gen(function* () {
             events.push(event);
+            if (event.type === "subagent.updated") yield* Queue.offer(subagentReceipts, event);
+            if (event.type === "turn_item.updated" && event.turnItem.type === "subagent") {
+              yield* Queue.offer(subagentItemReceipts, event);
+            }
             if (event.type === "turn.terminal") {
               yield* Queue.offer(terminalReceipts, event);
             }
@@ -2200,6 +2209,9 @@ describe("ClaudeAdapterV2 background wake turns", () => {
         offerAndWait,
         offeredMessages,
         permissionModeChanges,
+        promptReceipts,
+        subagentReceipts,
+        subagentItemReceipts,
         continuationRequests,
         events,
         terminalReceipts,
@@ -2210,6 +2222,165 @@ describe("ClaudeAdapterV2 background wake turns", () => {
       };
     });
   const makeWakeHarness = makeWakeHarnessWithOptions();
+
+  it.effect(
+    "keeps workflow members visible and updates their progress after the root settles",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const harness = yield* makeWakeHarness;
+          const now = yield* DateTime.now;
+          yield* harness.runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now,
+              attemptId: RunAttemptId.make("attempt-claude-workflow-roster"),
+              text: "Run the review workflow.",
+              attachments: [],
+            }),
+          );
+          yield* Queue.take(harness.promptReceipts);
+          const frame = (subtype: string, fields: Record<string, unknown>) =>
+            claudeSdkFrame({
+              type: "system",
+              subtype,
+              task_id: "workflow-review",
+              session_id: WAKE_NATIVE_SESSION,
+              uuid: `workflow-${subtype}`,
+              ...fields,
+            });
+          yield* harness.offerAndWait(
+            frame("init", {
+              user_message_uuid: ClaudeAdapterV2.claudePromptUuid("attempt-claude-workflow-roster"),
+            }),
+          );
+          yield* harness.offerAndWait(
+            frame("task_started", {
+              task_type: "local_workflow",
+              workflow_name: "review",
+              description: "Review workflow",
+            }),
+          );
+          yield* Queue.take(harness.subagentReceipts);
+          yield* Queue.take(harness.subagentItemReceipts);
+          const progress = (state: string, attempt = 1) =>
+            frame("task_progress", {
+              description: "Reviewing the implementation",
+              usage: { total_tokens: 1000, tool_uses: 2, duration_ms: 100 },
+              workflow_progress: [
+                { type: "workflow_phase", index: 0, title: "Review" },
+                {
+                  type: "workflow_agent",
+                  index: 0,
+                  label: "Reviewer",
+                  state,
+                  attempt,
+                  phaseIndex: 0,
+                  model: "claude-sonnet-4-6",
+                  startedAt: DateTime.toEpochMillis(now),
+                  lastToolName: "Read",
+                  tokens: 1000,
+                  toolCalls: 2,
+                },
+                {
+                  type: "workflow_agent",
+                  index: 1,
+                  label: "Verifier",
+                  state: "start",
+                  phaseIndex: 0,
+                },
+              ],
+            });
+          yield* harness.offerAndWait(progress("progress"));
+          yield* Queue.take(harness.subagentReceipts);
+          yield* Queue.take(harness.subagentItemReceipts);
+          const latest = () => {
+            const event = harness.events.findLast((entry) => entry.type === "subagent.updated");
+            if (event?.type !== "subagent.updated") throw new Error("Missing workflow projection");
+            return event.subagent;
+          };
+          assert.equal(latest().workflow?.name, "review");
+          assert.deepEqual(
+            latest().workflow?.agents.map(({ title, status }) => ({ title, status })),
+            [
+              { title: "Reviewer", status: "running" },
+              { title: "Verifier", status: "pending" },
+            ],
+          );
+          assert.equal(latest().workflow?.agents[0]?.usage?.totalTokens, 1000);
+          assert.equal(latest().workflow?.agents[0]?.startedAt, DateTime.formatIso(now));
+          const count = harness.events.filter((entry) => entry.type === "subagent.updated").length;
+          yield* harness.offerAndWait(progress("progress"));
+          assert.equal(
+            harness.events.filter((entry) => entry.type === "subagent.updated").length,
+            count,
+          );
+
+          yield* harness.offerAndWait(
+            makeResultFrame({ uuid: "workflow-root-result", result: "The review is running." }),
+          );
+          yield* Queue.take(harness.terminalReceipts);
+          yield* harness.offerAndWait(progress("done"));
+          yield* Queue.take(harness.subagentReceipts);
+          yield* Queue.take(harness.subagentItemReceipts);
+          assert.equal(latest().workflow?.agents[0]?.status, "completed");
+          assert.equal(harness.continuationRequests.length, 0);
+
+          yield* harness.offerAndWait(frame("task_updated", { patch: { status: "paused" } }));
+          yield* Queue.take(harness.subagentReceipts);
+          assert.equal(latest().status, "idle");
+          assert.equal(latest().completedAt, null);
+          assert.equal(
+            (yield* Queue.take(harness.subagentItemReceipts)).turnItem.status,
+            "waiting",
+          );
+          assert.isTrue(yield* harness.hasPendingBackgroundWork);
+          yield* harness.offerAndWait(frame("task_updated", { patch: { status: "running" } }));
+          yield* Queue.take(harness.subagentReceipts);
+          yield* Queue.take(harness.subagentItemReceipts);
+          assert.equal(latest().status, "running");
+          // A terminal patch can precede the transcript; task_notification settles it.
+          const countBeforeTerminalPatch = harness.events.filter(
+            (entry) => entry.type === "subagent.updated",
+          ).length;
+          yield* harness.offerAndWait(
+            frame("task_updated", { patch: { status: "failed", error: "Workflow failed" } }),
+          );
+          assert.equal(
+            harness.events.filter((entry) => entry.type === "subagent.updated").length,
+            countBeforeTerminalPatch,
+          );
+          assert.equal(latest().status, "running");
+          assert.isTrue(yield* harness.hasPendingBackgroundWork);
+          yield* harness.offerAndWait(
+            frame("task_notification", {
+              status: "failed",
+              output_file: "/tmp/workflow-review.output",
+              summary: "Workflow failed",
+            }),
+          );
+          assert.equal(harness.continuationRequests.length, 1);
+          yield* harness.runtime.startTurn(
+            makeClaudeTestTurnInput({
+              threadId: harness.threadId,
+              providerThread: harness.providerThread,
+              now,
+              attemptId: RunAttemptId.make("attempt-claude-workflow-wake"),
+              providerTurnOrdinal: 2,
+              messageCreatedBy: "agent",
+              messageCreationSource: "provider",
+              text: "Workflow failed",
+              attachments: [],
+            }),
+          );
+          yield* Queue.take(harness.subagentReceipts);
+          assert.equal((yield* Queue.take(harness.subagentItemReceipts)).turnItem.status, "failed");
+          assert.equal(latest().result, "Workflow failed");
+          assert.isFalse(yield* harness.hasPendingBackgroundWork);
+        }).pipe(Effect.provide(Layer.merge(IdAllocator.layer, NodeServices.layer))),
+      ),
+  );
 
   it.effect.each([
     { isError: false, title: "Check weather" },

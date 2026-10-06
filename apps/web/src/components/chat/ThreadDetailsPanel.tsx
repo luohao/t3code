@@ -28,6 +28,7 @@ import { OpenInPicker } from "./OpenInPicker";
 import { ThreadDetailsSection } from "./ThreadDetailsSection";
 import { ThreadAutomationsPanel } from "./ThreadAutomationsPanel";
 import { ThreadRelationshipsPanel } from "./ThreadRelationshipsControl";
+import { WorkflowAgentsPanel } from "./WorkflowAgentsPanel";
 
 interface VersionMismatchIssue {
   readonly clientVersion: string;
@@ -231,6 +232,9 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
               environmentId={props.environmentId}
               threadId={props.threadId}
             />
+          ) : null}
+          {!props.draftId ? (
+            <WorkflowAgentsPanel environmentId={props.environmentId} threadId={props.threadId} />
           ) : null}
         </>
       )}

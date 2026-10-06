@@ -660,6 +660,44 @@ export const OrchestrationV2ExecutionNode = Schema.Struct({
 });
 export type OrchestrationV2ExecutionNode = typeof OrchestrationV2ExecutionNode.Type;
 
+const SubagentStatus = Schema.Literals([
+  "idle",
+  "pending",
+  "running",
+  "waiting",
+  "completed",
+  "failed",
+  "cancelled",
+  "interrupted",
+]);
+
+// Workflow members are provider-reported progress, not independently addressable sessions.
+const SubagentWorkflow = Schema.Struct({
+  name: Schema.NullOr(Schema.String),
+  phases: Schema.Array(Schema.Struct({ index: NonNegativeInt, title: Schema.String })),
+  agents: Schema.Array(
+    Schema.Struct({
+      index: NonNegativeInt,
+      title: Schema.String,
+      status: SubagentStatus,
+      model: Schema.optional(Schema.String),
+      phaseIndex: Schema.optional(NonNegativeInt),
+      phaseTitle: Schema.optional(Schema.String),
+      attempt: Schema.optional(NonNegativeInt),
+      lastToolName: Schema.optional(Schema.String),
+      error: Schema.optional(Schema.String),
+      usage: Schema.optional(
+        Schema.Struct({
+          totalTokens: NonNegativeInt,
+          toolUses: Schema.optionalKey(NonNegativeInt),
+        }),
+      ),
+      startedAt: Schema.NullOr(IsoDateTime),
+      completedAt: Schema.NullOr(IsoDateTime),
+    }),
+  ),
+});
+
 export const OrchestrationV2Subagent = Schema.Struct({
   id: NodeId,
   threadId: ThreadId,
@@ -682,17 +720,9 @@ export const OrchestrationV2Subagent = Schema.Struct({
   // blocking tool call). Absent on legacy records; treated as settled_only.
   completionWake: Schema.optional(Schema.Literals(["always", "settled_only"])),
   completionDelivery: Schema.optional(OrchestrationV2DelegatedCompletionTaskDelivery),
-  status: Schema.Literals([
-    "idle",
-    "pending",
-    "running",
-    "waiting",
-    "completed",
-    "failed",
-    "cancelled",
-    "interrupted",
-  ]),
+  status: SubagentStatus,
   progress: Schema.optional(Schema.String),
+  workflow: Schema.optional(SubagentWorkflow),
   result: Schema.NullOr(Schema.String),
   startedAt: Schema.NullOr(Schema.DateTimeUtc),
   completedAt: Schema.NullOr(Schema.DateTimeUtc),

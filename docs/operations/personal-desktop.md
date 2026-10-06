@@ -11,6 +11,7 @@ helper on top of upstream `main`:
 4. Chat math with lazy-loaded KaTeX, Codex-compatible delimiters, and TeX copying
    (adapted from PR #12118 and the public Codex terminal's single-dollar rules).
 5. Named chat folders with session moves and saved collapse state on web and desktop.
+6. Claude workflow agent names and live status in thread details, including background progress.
 
 `upstream` points to `https://github.com/pingdotgg/t3code.git`. `origin` points to
 the personal fork at `https://github.com/luohao/t3code.git`. Keep personal changes

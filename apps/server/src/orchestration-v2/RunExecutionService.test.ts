@@ -1377,6 +1377,35 @@ it.effect("ingests the trailing subagent item completion after the subagent row 
   }),
 );
 
+it.effect("keeps ingesting paused and terminal agent patches until the final report arrives", () =>
+  Effect.gen(function* () {
+    const observed = yield* runBackgroundItemScenario("subagent-status-before-report", (ids) => [
+      subagentEvent(ids, "running"),
+      backgroundTurnItemEvent(ids, "subagent", "running", 1),
+      rootTerminalEvent(ids, "completed"),
+      subagentEvent(ids, "idle"),
+      backgroundTurnItemEvent(ids, "subagent", "waiting", 2),
+      subagentEvent(ids, "running"),
+      backgroundTurnItemEvent(ids, "subagent", "running", 3),
+      subagentEvent(ids, "completed"),
+      backgroundTurnItemEvent(ids, "subagent", "waiting", 4),
+      backgroundTurnItemEvent(ids, "subagent", "completed", 5),
+    ]);
+    assert.deepEqual(observed, [
+      "subagent:running",
+      "turn_item:running",
+      "root-finalized",
+      "subagent:idle",
+      "turn_item:waiting",
+      "subagent:running",
+      "turn_item:running",
+      "subagent:completed",
+      "turn_item:waiting",
+      "turn_item:completed",
+    ]);
+  }),
+);
+
 it.effect("keeps ingesting a child thread's late background item completion", () =>
   Effect.gen(function* () {
     const observed = yield* runBackgroundItemScenario("bg-child-item", (ids) => [
@@ -3656,7 +3685,7 @@ function childBackgroundTurnItemEvent(
 function backgroundTurnItemEvent(
   ids: BackgroundScenarioIds,
   type: "command_execution" | "dynamic_tool" | "subagent",
-  status: "running" | "completed" | "idle",
+  status: "running" | "completed" | "idle" | "waiting",
   ordinal: number,
   itemId?: TurnItemId,
 ): ProviderAdapterV2Event {

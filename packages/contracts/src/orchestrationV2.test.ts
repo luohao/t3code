@@ -36,6 +36,7 @@ import {
   OrchestrationV2ShellSnapshot,
   OrchestrationV2SubscribeThreadInput,
   OrchestrationV2Subagent,
+  OrchestrationV2SubagentJson,
   OrchestrationV2ThreadHistoryPage,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadStreamItem,
@@ -70,6 +71,8 @@ const decodeOrchestrationV2Checkpoint = Schema.decodeUnknownSync(OrchestrationV2
 const decodeOrchestrationV2DomainEvent = Schema.decodeUnknownSync(OrchestrationV2DomainEvent);
 const decodeProviderReplayTranscript = Schema.decodeUnknownSync(ProviderReplayTranscript);
 const decodeOrchestrationV2Subagent = Schema.decodeUnknownSync(OrchestrationV2Subagent);
+const decodeOrchestrationV2SubagentJson = Schema.decodeUnknownSync(OrchestrationV2SubagentJson);
+const encodeOrchestrationV2SubagentJson = Schema.encodeSync(OrchestrationV2SubagentJson);
 const decodeOrchestrationV2ThreadProjection = Schema.decodeUnknownSync(
   OrchestrationV2ThreadProjection,
 );
@@ -844,6 +847,29 @@ describe("orchestration V2 contracts", () => {
     expect(turnItem.type).toBe("subagent");
     if (turnItem.type !== "subagent") throw new Error("expected subagent item");
     expect(turnItem.progress).toBe("Inspecting package metadata");
+    expect(subagent.workflow).toBeUndefined();
+
+    const workflow = decodeOrchestrationV2Subagent({
+      ...subagent,
+      workflow: {
+        name: "review",
+        phases: [{ index: 0, title: "Review" }],
+        agents: [
+          {
+            index: 0,
+            title: "Reviewer",
+            status: "running",
+            model: "claude-sonnet-4-6",
+            phaseIndex: 0,
+            startedAt: DateTime.formatIso(now),
+            completedAt: null,
+            usage: { totalTokens: 1000, toolUses: 2 },
+          },
+        ],
+      },
+    });
+    const wire = encodeOrchestrationV2SubagentJson(workflow);
+    expect(decodeOrchestrationV2SubagentJson(wire).workflow).toEqual(workflow.workflow);
   });
 
   it("decodes app-owned subagent parent-wake policies", () => {
