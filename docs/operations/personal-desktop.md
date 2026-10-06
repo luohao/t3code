@@ -3,15 +3,20 @@
 Use `personal/desktop` for the personal app. It carries these features and a build
 helper on top of upstream `main`:
 
-1. Configurable generated worktree branch prefixes, now provided by upstream's
-   branch-naming settings. Saved personal prefixes migrate automatically.
-2. Mermaid diagrams in chat (ported from PR #9621).
-3. Diagram styling with beautiful-mermaid and the app palette, with original
-   Mermaid as a fallback for unsupported syntax.
-4. Chat math with lazy-loaded KaTeX, Codex-compatible delimiters, and TeX copying
+1. Diagram styling with beautiful-mermaid on top of upstream's Mermaid rendering
+   (#15067): flowcharts and sequence, state, class and ER diagrams whose syntax
+   it draws faithfully use the app palette and fonts; everything else stays with
+   Mermaid.
+2. Chat math with lazy-loaded KaTeX, Codex-compatible delimiters, and TeX copying
    (adapted from PR #12118 and the public Codex terminal's single-dollar rules).
-5. Named chat folders with session moves and saved collapse state on web and desktop.
-6. Ongoing Claude workflows with stages, tasks and an expandable stage diagram in thread details, including background progress.
+3. Named chat folders with chat moves, drag and drop, saved collapse state, and
+   badges that count only live chats, on web and desktop.
+4. Ongoing Claude workflows with stages, tasks and an expandable stage diagram in thread details, including background progress.
+
+Upstream has since adopted two former personal features: worktree branch
+prefixes (branch-naming settings) and Mermaid rendering. Their ports were dropped
+in the 2026-10-06 sync; `backup/desktop-20261006-before-upstream-sync` keeps the
+branch as it was before.
 
 `upstream` points to `https://github.com/pingdotgg/t3code.git`. `origin` points to
 the personal fork at `https://github.com/luohao/t3code.git`. Keep personal changes
@@ -52,10 +57,11 @@ vp install --frozen-lockfile
 After syncing, run the focused feature checks:
 
 ```sh
-(cd apps/server && vp test run src/serverSettings.test.ts)
-(cd packages/shared && vp test run src/git.test.ts)
-(cd apps/web && vp test run src/chatFoldersStore.test.ts src/components/sidebar/ChatFolders.test.tsx src/components/Sidebar.folders.test.tsx src/components/Sidebar.logic.test.ts src/components/threadActionMenu.logic.test.ts src/mermaidRenderer.test.ts src/components/MermaidDiagram.test.tsx src/components/ChatMarkdown.test.tsx src/markdown-clipboard.test.ts src/markdown-math.test.ts src/markdown-math-clipboard.test.ts src/markdown-incremental.test.ts)
-vp run --filter @t3tools/web --filter t3 typecheck
+(cd apps/server && vp test run src/orchestration-v2/Adapters/ClaudeAdapterV2.test.ts src/orchestration-v2/Adapters/ClaudeWorkflowProgress.test.ts src/orchestration-v2/RunExecutionService.test.ts)
+(cd packages/contracts && vp test run src/orchestrationV2.test.ts)
+(cd packages/client-runtime && vp test run src/state/subagentRuntime.test.ts)
+(cd apps/web && vp test run src/chatFoldersStore.test.ts src/components/sidebar/ChatFolders.test.tsx src/components/Sidebar.folders.test.tsx src/components/Sidebar.drag.test.ts src/components/Sidebar.logic.test.ts src/components/threadActionMenu.logic.test.ts src/components/chat/beautifulMermaid.test.ts src/components/ChatMarkdown.test.tsx src/markdown-clipboard.test.ts src/markdown-math.test.ts src/markdown-math-clipboard.test.ts src/markdown-incremental.test.tsx src/components/chat/WorkflowAgentsPanel.test.tsx src/components/chat/ThreadDetailsPanel.test.tsx)
+vp run --filter @t3tools/web --filter t3 --filter @t3tools/contracts --filter @t3tools/client-runtime typecheck
 ```
 
 Review and commit any compatibility fixes, then build:
