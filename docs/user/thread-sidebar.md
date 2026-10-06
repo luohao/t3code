@@ -139,6 +139,9 @@ Collapse a folder to hide its chats; search still finds them. A folder can hold
 chats from different projects. Folder names, membership, and collapse choices
 are saved on this desktop or browser. Removing a folder keeps its chats.
 
+Settled and snoozed chats stay in their folder as compact rows. The number beside a
+folder counts only its other chats.
+
 ## Settle finished work
 
 Choose **Settle thread** from its menu to move finished work out of the active list

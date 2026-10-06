@@ -6,6 +6,7 @@ import {
   type ClientSettings,
   type EnvironmentMachineKind,
 } from "@t3tools/contracts";
+import { scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   createMemoryHistory,
   createRootRoute,
@@ -37,6 +38,17 @@ vi.mock("../state/environments", async (original) => ({
   useConnectedEnvironmentIds: () => environmentIds,
   usePrimaryEnvironmentId: () => environmentId,
 }));
+// Settlement and snooze classify only on servers that report the capability.
+vi.mock("../state/server", async (original) => {
+  const { Atom } = await import("effect/reactivity");
+  const capabilities = { threadSettlement: true, threadSnooze: true };
+  return {
+    ...(await original<typeof import("../state/server")>()),
+    environmentServerConfigsAtom: Atom.make(
+      new Map([["local", { environment: { capabilities }, providers: [] }]]),
+    ),
+  };
+});
 vi.mock("../state/query", () => ({ useEnvironmentQuery: () => ({ data: null }) }));
 vi.mock("../state/queries", () => ({ useThreadSearch: () => ({ matches: [], isPending: false }) }));
 vi.mock("../state/use-atom-command", () => ({ useAtomCommand: () => vi.fn() }));
@@ -76,6 +88,19 @@ const threads = [
     id: ThreadId.make("folder-move-second"),
     title: "Second session",
     settledOverride: "active",
+  }),
+  makeThreadFixture({
+    environmentId,
+    id: ThreadId.make("folder-settled"),
+    title: "Settled session",
+    settledOverride: "settled",
+  }),
+  makeThreadFixture({
+    environmentId,
+    id: ThreadId.make("folder-snoozed"),
+    title: "Snoozed session",
+    settledOverride: "active",
+    snoozedUntil: "2999-01-01T00:00:00.000Z",
   }),
 ];
 const projects: readonly Project[] = [
@@ -336,5 +361,26 @@ describe("sidebar folder moves", () => {
     expect(
       container.querySelector('[aria-label="Other, 0 chats"]')?.closest("li")?.contains(row()),
     ).toBe(false);
+  });
+});
+
+describe("sidebar folder counts", () => {
+  it("counts live chats and keeps snoozed and settled chats listed but uncounted", async () => {
+    const folder = chatFoldersStore.getState().folders[0]!;
+    await act(async () =>
+      chatFoldersStore.getState().moveThreads(
+        threads.map((thread) => scopeThreadRef(thread.environmentId, thread.id)),
+        folder.id,
+      ),
+    );
+    const header = container.querySelector('[aria-label="eli5, 2 active of 4 chats"]');
+    expect(header?.lastElementChild?.textContent).toBe("2");
+    for (const title of ["Second session", "Settled session", "Snoozed session"]) {
+      expect(header?.closest("li")?.contains(row(title))).toBe(true);
+    }
+    await act(async () =>
+      chatFoldersStore.getState().moveThreads([scopeThreadRef(environmentId, threadId)], null),
+    );
+    expect(container.querySelector('[aria-label="eli5, 1 active of 3 chats"]')).not.toBeNull();
   });
 });

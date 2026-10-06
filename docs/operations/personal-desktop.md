@@ -53,7 +53,7 @@ After syncing, run the focused feature checks:
 ```sh
 (cd apps/server && vp test run src/serverSettings.test.ts)
 (cd packages/shared && vp test run src/git.test.ts)
-(cd apps/web && vp test run src/chatFoldersStore.test.ts src/components/sidebar/ChatFolders.test.tsx src/components/Sidebar.logic.test.ts src/components/threadActionMenu.logic.test.ts src/mermaidRenderer.test.ts src/components/MermaidDiagram.test.tsx src/components/ChatMarkdown.test.tsx src/markdown-clipboard.test.ts src/markdown-math.test.ts src/markdown-math-clipboard.test.ts src/markdown-incremental.test.ts)
+(cd apps/web && vp test run src/chatFoldersStore.test.ts src/components/sidebar/ChatFolders.test.tsx src/components/Sidebar.folders.test.tsx src/components/Sidebar.logic.test.ts src/components/threadActionMenu.logic.test.ts src/mermaidRenderer.test.ts src/components/MermaidDiagram.test.tsx src/components/ChatMarkdown.test.tsx src/markdown-clipboard.test.ts src/markdown-math.test.ts src/markdown-math-clipboard.test.ts src/markdown-incremental.test.ts)
 vp run --filter @t3tools/web --filter t3 typecheck
 ```
 

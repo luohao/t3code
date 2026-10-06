@@ -220,6 +220,7 @@ import {
   sortSidebarV2ProjectGroups,
   sortThreadsForSidebar,
   sortWorkingThreadsBySend,
+  isLiveSidebarSection,
   useThreadJumpHintVisibility,
   useRetainedValue,
   useSidebarRowSubscriptionLease,
@@ -2883,16 +2884,24 @@ export default function Sidebar() {
       rows.filter((thread) =>
         unfiledKeys.has(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id))),
       );
-    return {
-      folderGroups: grouped.folders,
-      folderThreadSections: new Map(
-        sections.flatMap(([section, rows]) =>
-          rows.map(
-            (thread) =>
-              [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), section] as const,
-          ),
+    const threadSections = new Map(
+      sections.flatMap(([section, rows]) =>
+        rows.map(
+          (thread) =>
+            [scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)), section] as const,
         ),
       ),
+    );
+    return {
+      folderGroups: grouped.folders.map((group) => ({
+        ...group,
+        liveCount: group.threads.filter((thread) =>
+          isLiveSidebarSection(
+            threadSections.get(scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id)))!,
+          ),
+        ).length,
+      })),
+      folderThreadSections: threadSections,
       pinnedThreads: unfiled(allPinnedThreads),
       activeThreads: unfiled(allActiveThreads),
       workingThreads: unfiled(allWorkingThreads),
@@ -5260,9 +5269,7 @@ export default function Sidebar() {
                         // from users (or the auto rules) actually parking work,
                         // not from the sidebar second-guessing what still matters.
                         // Working rows stay cards so their live status shows.
-                        const isCard =
-                          section === "active" || section === "pinned" || section === "working";
-                        const rowVariant = isCard ? "card" : "slim";
+                        const rowVariant = isLiveSidebarSection(section) ? "card" : "slim";
                         return (
                           <SidebarThreadRow
                             // Fade between card and compact rows while the outer
@@ -5415,6 +5422,7 @@ export default function Sidebar() {
                             threads={group.threads.map((thread) =>
                               scopeThreadRef(thread.environmentId, thread.id),
                             )}
+                            liveCount={group.liveCount}
                           >
                             {group.threads.map((thread) =>
                               renderThreadRow(

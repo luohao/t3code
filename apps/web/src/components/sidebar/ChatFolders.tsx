@@ -121,15 +121,23 @@ export function handleChatFolderMenuAction(
 export function ChatFolderSection({
   folder,
   threads,
+  liveCount = threads.length,
   children,
   allowDrop = false,
 }: {
   readonly folder: ChatFolder;
   readonly threads: readonly ScopedThreadRef[];
+  /** The badge number. Uncounted chats still list in the folder. Defaults to
+   * every filed chat. */
+  readonly liveCount?: number;
   readonly children: ReactNode;
   readonly allowDrop?: boolean;
 }) {
   const contentId = useId();
+  const countLabel =
+    liveCount === threads.length
+      ? `${threads.length} chats`
+      : `${liveCount} active of ${threads.length} chats`;
   const { setNodeRef, isOver } = useDroppable({
     id: chatFolderMoveAction(folder.id),
     disabled: !allowDrop,
@@ -141,7 +149,7 @@ export function ChatFolderSection({
           type="button"
           aria-expanded={!folder.collapsed}
           aria-controls={folder.collapsed ? undefined : contentId}
-          aria-label={`${folder.name}, ${threads.length} chats`}
+          aria-label={`${folder.name}, ${countLabel}`}
           className={cn(
             "flex h-9 min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left text-xs font-medium text-sidebar-muted-foreground hover:bg-sidebar-row-hover hover:text-sidebar-foreground",
             isOver && "bg-primary/10 text-primary ring-1 ring-inset ring-primary/40",
@@ -168,7 +176,7 @@ export function ChatFolderSection({
             <FolderOpenIcon aria-hidden className="size-4 shrink-0" />
           )}
           <span className="min-w-0 flex-1 truncate">{folder.name}</span>
-          <span className="text-2xs tabular-nums">{threads.length}</span>
+          <span className="text-2xs tabular-nums">{liveCount}</span>
         </button>
         <Menu>
           <MenuTrigger

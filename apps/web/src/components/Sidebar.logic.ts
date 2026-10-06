@@ -146,6 +146,12 @@ export function resolveSidebarThreadSection(input: {
   return "active";
 }
 
+/** Live work renders as full cards. Parked work (snoozed or settled) renders
+ * as slim rows and drops out of folder counts. */
+export function isLiveSidebarSection(section: SidebarSection): boolean {
+  return section === "pinned" || section === "active" || section === "working";
+}
+
 /** Sortable ids: thread rows use their scoped key; structural items use a
     colon-free prefix: scoped thread keys always contain a colon. */
 const SIDEBAR_MARKER_PREFIX = "sidebar-marker-";
